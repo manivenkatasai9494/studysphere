@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Notes — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css?v=3">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js?v=2"></script>
+  <script src="/js/app.js?v=2"></script>
+  <script>
+    let currentChatId = null;
+
+    function mountRagUI() {
+      const page = document.getElementById('page-content');
+      if (!page) throw new Error('page-content not found');
+      page.classList.add('page-chat');
+      page.innerHTML = `
+      <div class="chat-layout">
+        <div class="chat-sidebar">
+          <div class="chat-sidebar-header">
+            <label class="btn btn-secondary btn-sm" style="width:100%;text-align:center;cursor:pointer;display:block">
+              📤 Upload Document
+              <input type="file" id="file-upload" accept=".pdf,.docx,.txt,.md,.pptx,.csv" hidden>
+            </label>
+          </div>
+          <div class="chat-list" id="chat-list"></div>
+        </div>
+        <div class="chat-main">
+          <div class="chat-messages" id="messages"><p class="chat-empty-hint">Upload a document to start chatting</p></div>
+          <div class="chat-input-area">
+            <div class="chat-input-wrap">
+              <textarea id="user-input" placeholder="Ask about your documents..." rows="3"></textarea>
+              <button type="button" class="btn btn-primary" id="send-btn">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    }
+
+    try {
+      document.getElementById('app').innerHTML = appLayoutHTML('/rag.html', 'RAG Notes');
+      if (!initAppLayout('/rag.html', 'RAG Notes')) throw new Error('Not authenticated');
+      mountRagUI();
+    } catch (err) {
+      console.error(err);
+      const page = document.getElementById('page-content');
+      if (page) {
+        page.innerHTML = `<div class="card" style="margin:1.5rem"><h2>Could not load chat UI</h2><p>${escapeHtml(String(err.message))}</p></div>`;
+      }
+    }
+
+    async function loadChats() {
+      const data = await api.get('/rag/chats');
+      const list = document.getElementById('chat-list');
+      list.innerHTML = (data.chats || []).map(c => `
+        <div class="chat-item ${c.id === currentChatId ? 'active' : ''}" data-id="${c.id}" role="button" tabindex="0">
+          <div class="title">${escapeHtml(c.title || 'Document chat')}</div>
+        </div>
+      `).join('') || '<p class="chat-empty-hint" style="padding:1rem">Upload a document first</p>';
+      bindChatSidebar(list, selectChat);
+    }
+
+    async function selectChat(id) {
+      if (!id) return;
+      try {
+        currentChatId = id;
+        setActiveChatItem(document.getElementById('chat-list'), id);
+        const data = await api.get(`/rag/chats/${id}/messages`);
+        const container = document.getElementById('messages');
+        container.innerHTML = renderChatHistory(
+          data.messages,
+          'No messages yet. Ask a question about your document.'
+        );
+        scrollChat(container);
+        loadChats();
+      } catch (err) {
+        showToast(err.message || 'Could not load chat', 'error');
+      }
+    }
+
+    document.getElementById('file-upload').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        showToast('Uploading and indexing...', 'info');
+        const res = await api.upload('/rag/upload', fd);
+        currentChatId = res.chat_id;
+        showToast(`Indexed ${res.chunks} chunks`, 'success');
+        loadChats();
+        selectChat(res.chat_id);
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+
+    document.getElementById('user-input').onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('send-btn').click(); }
+    };
+
+    document.getElementById('send-btn').onclick = async () => {
+      const text = document.getElementById('user-input').value.trim();
+      if (!text || !currentChatId) return;
+      const container = document.getElementById('messages');
+      appendChatMessage(container, 'user', text);
+      document.getElementById('user-input').value = '';
+      try {
+        const res = await api.post(`/rag/chats/${currentChatId}/chat`, { content: text });
+        appendChatMessage(container, 'assistant', res.content, { sources: res.sources });
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+
+    if (document.getElementById('chat-list')) loadChats();
+  </script>
+</body>
+</html>

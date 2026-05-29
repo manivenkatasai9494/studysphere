@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Generator — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.getElementById('app').innerHTML = appLayoutHTML('/quiz.html', 'Quiz Generator');
+    initAppLayout('/quiz.html', 'Quiz Generator');
+    let currentQuiz = null;
+    let quizId = null;
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="card" id="setup-panel">
+        <h2>Generate Quiz</h2>
+        <div class="form-row">
+          <div class="form-group"><label>Topic</label><input id="topic" placeholder="e.g. Python Lists"></div>
+          <div class="form-group"><label>Difficulty</label>
+            <select id="difficulty"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select>
+          </div>
+          <div class="form-group"><label>Questions</label>
+            <select id="count"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="25">25</option><option value="50">50</option></select>
+          </div>
+          <div class="form-group"><label>Type</label>
+            <select id="qtype"><option value="mixed">Mixed</option><option value="mcq">MCQ</option><option value="true_false">True/False</option><option value="short_answer">Short Answer</option></select>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="generate-btn">Generate Quiz</button>
+      </div>
+      <div id="quiz-area" class="hidden"></div>
+      <div class="card" id="history-panel"><h2>Quiz History</h2><div id="history"></div></div>
+    `;
+
+    document.getElementById('generate-btn').onclick = async () => {
+      const btn = document.getElementById('generate-btn');
+      btn.disabled = true;
+      try {
+        const res = await api.post('/quiz/generate', {
+          topic: document.getElementById('topic').value,
+          difficulty: document.getElementById('difficulty').value,
+          question_count: +document.getElementById('count').value,
+          question_type: document.getElementById('qtype').value,
+        });
+        quizId = res.quiz_id;
+        currentQuiz = res.questions;
+        renderQuiz();
+      } catch (err) { showToast(err.message, 'error'); }
+      btn.disabled = false;
+    };
+
+    function renderQuiz() {
+      document.getElementById('setup-panel').classList.add('hidden');
+      const area = document.getElementById('quiz-area');
+      area.classList.remove('hidden');
+      area.innerHTML = `<div class="card"><h2>Quiz: ${document.getElementById('topic').value}</h2>
+        ${currentQuiz.map((q, i) => `
+          <div class="quiz-question" data-id="${q.id || i}">
+            <p><strong>Q${i+1}.</strong> ${q.question}</p>
+            ${q.options ? `<div class="quiz-options">${q.options.map((o,j) => `
+              <label><input type="radio" name="q${i}" value="${o}"> ${o}</label>`).join('')}</div>` :
+              `<input type="text" class="short-answer" data-q="${i}" placeholder="Your answer">`}
+          </div>
+        `).join('')}
+        <button class="btn btn-primary" id="submit-quiz">Submit & Evaluate</button>
+      </div>`;
+
+      document.getElementById('submit-quiz').onclick = async () => {
+        const answers = {};
+        currentQuiz.forEach((q, i) => {
+          const radio = document.querySelector(`input[name="q${i}"]:checked`);
+          const text = document.querySelector(`.short-answer[data-q="${i}"]`);
+          answers[q.id || i] = radio ? radio.value : (text ? text.value : '');
+        });
+        try {
+          const res = await api.post(`/quiz/${quizId}/submit`, { answers });
+          area.innerHTML = `<div class="card"><h2>Results</h2>
+            <div class="result-score">Score: ${res.score}% · Accuracy: ${res.accuracy}%</div>
+            ${formatStructuredData(res.evaluation)}
+            ${res.pdf_base64 ? `<a class="btn btn-secondary" href="data:application/pdf;base64,${res.pdf_base64}" download="quiz-report.pdf">Download PDF Report</a>` : ''}
+          </div>`;
+          loadHistory();
+        } catch (err) { showToast(err.message, 'error'); }
+      };
+    }
+
+    async function loadHistory() {
+      const data = await api.get('/quiz/history');
+      document.getElementById('history').innerHTML = (data.attempts || []).slice(0, 10).map(a => `
+        <p>${a.quizzes?.topic || 'Quiz'} — Score: ${a.score}% — ${new Date(a.created_at).toLocaleDateString()}</p>
+      `).join('') || '<p style="color:var(--text-muted)">No attempts yet</p>';
+    }
+    loadHistory();
+  </script>
+</body>
+</html>

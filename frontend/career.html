@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Career Guidance — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.getElementById('app').innerHTML = appLayoutHTML('/career.html', 'Career Guidance');
+    initAppLayout('/career.html', 'Career Guidance');
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="card">
+        <h2>Career Guidance</h2>
+        <div class="form-row">
+          <div class="form-group"><label>Skills (comma-separated)</label><input id="skills" placeholder="Python, SQL, ML"></div>
+          <div class="form-group"><label>Interests</label><input id="interests" placeholder="AI, Web Dev"></div>
+          <div class="form-group"><label>Education</label><input id="education" placeholder="B.Tech CS"></div>
+          <div class="form-group"><label>Experience</label><input id="experience" placeholder="2 years internship"></div>
+        </div>
+        <div class="form-group"><label>Goals</label><textarea id="goals" rows="3" placeholder="Become an AI Engineer..."></textarea></div>
+        <button class="btn btn-primary" id="generate">Generate Report</button>
+      </div>
+      <div id="report" class="card hidden"></div>
+      <div class="card"><h2>Previous Reports</h2><div id="history"></div></div>
+    `;
+
+    document.getElementById('generate').onclick = async () => {
+      const btn = document.getElementById('generate');
+      btn.disabled = true;
+      try {
+        const res = await api.post('/career/generate', {
+          skills: document.getElementById('skills').value.split(',').map(s => s.trim()).filter(Boolean),
+          interests: document.getElementById('interests').value.split(',').map(s => s.trim()).filter(Boolean),
+          education: document.getElementById('education').value,
+          experience: document.getElementById('experience').value,
+          goals: document.getElementById('goals').value,
+        });
+        const el = document.getElementById('report');
+        el.classList.remove('hidden');
+        el.innerHTML = `<h2>Your Career Report</h2>${formatReport(res.report)}`;
+        loadHistory();
+      } catch (err) { showToast(err.message, 'error'); }
+      btn.disabled = false;
+    };
+
+    function formatReport(r) {
+      if (!r) return '';
+      return Object.entries(r).map(([k, v]) => `
+        <h3 style="margin-top:1rem;text-transform:capitalize">${k.replace(/_/g, ' ')}</h3>
+        <div>${typeof v === 'object' ? `<pre>${JSON.stringify(v, null, 2)}</pre>` : simpleMarkdown(String(v))}</div>
+      `).join('');
+    }
+
+    async function loadHistory() {
+      const data = await api.get('/career/reports');
+      document.getElementById('history').innerHTML = (data.reports || []).map(r => `
+        <p><a href="#" onclick="loadReport('${r.id}');return false">Report — ${new Date(r.created_at).toLocaleDateString()}</a></p>
+      `).join('') || '<p style="color:var(--text-muted)">No reports yet</p>';
+    }
+
+    window.loadReport = async (id) => {
+      const r = await api.get(`/career/reports/${id}`);
+      document.getElementById('report').classList.remove('hidden');
+      document.getElementById('report').innerHTML = `<h2>Career Report</h2>${formatReport(r.report)}`;
+    };
+    loadHistory();
+  </script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study Rooms — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.getElementById('app').innerHTML = appLayoutHTML('/rooms.html', 'Group Study Rooms');
+    initAppLayout('/rooms.html', 'Group Study Rooms');
+    let currentRoomId = null;
+    let ws = null;
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="card" id="lobby">
+        <h2>Study Rooms</h2>
+        <div class="form-row">
+          <div class="form-group"><label>Room Name</label><input id="room-name" placeholder="Physics Study Group"></div>
+          <button class="btn btn-primary" id="create-room">Create Room</button>
+        </div>
+        <div class="form-row" style="margin-top:1rem">
+          <div class="form-group"><label>Room Code</label><input id="room-code" placeholder="ABC123"></div>
+          <button class="btn btn-secondary" id="join-room">Join Room</button>
+        </div>
+        <div id="my-rooms" style="margin-top:1.5rem"></div>
+      </div>
+      <div id="room-view" class="hidden room-layout">
+        <div class="room-chat card">
+          <h2 id="room-title">Room</h2>
+          <p>Code: <strong id="room-code-display"></strong></p>
+          <div class="chat-messages" id="room-messages"></div>
+          <div class="chat-input-area" style="margin-top:1rem;border-top:none;padding:0">
+            <div class="chat-input-wrap">
+              <textarea id="room-msg" rows="2" placeholder="Type a message..."></textarea>
+              <button type="button" class="btn btn-primary" id="send-msg">Send</button>
+            </div>
+          </div>
+        </div>
+        <div class="room-notes card">
+          <h3>Shared Notes</h3>
+          <textarea id="shared-notes" rows="12"></textarea>
+          <button class="btn btn-secondary btn-sm" id="save-notes" style="margin-top:.5rem">Save Notes</button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('create-room').onclick = async () => {
+      const res = await api.post('/rooms/create', { name: document.getElementById('room-name').value || 'Study Room' });
+      enterRoom(res);
+    };
+
+    document.getElementById('join-room').onclick = async () => {
+      const res = await api.post('/rooms/join', { room_code: document.getElementById('room-code').value });
+      enterRoom(res.room);
+    };
+
+    function enterRoom(room) {
+      currentRoomId = room.id || room.room_id;
+      document.getElementById('lobby').classList.add('hidden');
+      document.getElementById('room-view').classList.remove('hidden');
+      document.getElementById('room-title').textContent = room.name;
+      document.getElementById('room-code-display').textContent = room.room_code;
+      loadMessages();
+      connectWs();
+    }
+
+    function connectWs() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}/api/rooms/ws/${currentRoomId}`);
+      ws.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'message') appendMessage(data.data);
+        if (data.type === 'notes') document.getElementById('shared-notes').value = data.notes;
+      };
+    }
+
+    function appendMessage(msg) {
+      const el = document.getElementById('room-messages');
+      const who = escapeHtml((msg.user_id || 'user').slice(0, 8));
+      const body = escapeHtml(msg.content || '').replace(/\n/g, '<br>');
+      el.insertAdjacentHTML('beforeend', `
+        <div class="message user" style="max-width:92%">
+          <small style="opacity:.7">${who}</small>
+          <p style="margin-top:.35rem">${body}</p>
+        </div>`);
+      scrollChat(el);
+    }
+
+    async function loadMessages() {
+      const data = await api.get(`/rooms/${currentRoomId}/messages`);
+      const el = document.getElementById('room-messages');
+      el.innerHTML = '';
+      (data.messages || []).forEach(m => appendMessage(m));
+    }
+
+    document.getElementById('room-msg').onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('send-msg').click(); }
+    };
+
+    document.getElementById('send-msg').onclick = async () => {
+      const content = document.getElementById('room-msg').value.trim();
+      if (!content) return;
+      const msg = await api.post(`/rooms/${currentRoomId}/messages`, { content });
+      appendMessage(msg);
+      document.getElementById('room-msg').value = '';
+    };
+
+    document.getElementById('save-notes').onclick = async () => {
+      await api.patch(`/rooms/${currentRoomId}/notes`, { notes: document.getElementById('shared-notes').value });
+      showToast('Notes saved', 'success');
+    };
+
+    async function loadMyRooms() {
+      const data = await api.get('/rooms/my-rooms');
+      document.getElementById('my-rooms').innerHTML = '<h3>Your Rooms</h3>' + (data.rooms || []).map(r => {
+        const room = r.study_rooms || r;
+        return `<p><a href="#" onclick="rejoin('${room.room_code}');return false">${room.name} (${room.room_code})</a></p>`;
+      }).join('') || '<p style="color:var(--text-muted)">No rooms yet</p>';
+    }
+
+    window.rejoin = async (code) => {
+      document.getElementById('room-code').value = code;
+      document.getElementById('join-room').click();
+    };
+    loadMyRooms();
+  </script>
+</body>
+</html>

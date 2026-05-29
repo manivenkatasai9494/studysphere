@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="logo">StudySphere AI</div>
+      <p class="logo-sub">Create your learning account</p>
+      <form id="register-form">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="full_name" placeholder="Your name">
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="email" required>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="password" required minlength="8">
+        </div>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Create Account</button>
+      </form>
+      <p class="auth-links">Already have an account? <a href="/login.html">Sign in</a></p>
+    </div>
+  </div>
+  <script src="/js/api.js"></script>
+  <script>
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      try {
+        const data = await api.post('/auth/register', {
+          email: document.getElementById('email').value,
+          password: document.getElementById('password').value,
+          full_name: document.getElementById('full_name').value,
+        });
+        api.setTokens(data.access_token, data.refresh_token, data.user_id, data.email);
+        window.location.href = '/dashboard.html';
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

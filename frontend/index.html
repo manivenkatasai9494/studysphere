@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <script>
+    if (localStorage.getItem('access_token')) {
+      window.location.href = '/dashboard.html';
+    } else {
+      window.location.href = '/login.html';
+    }
+  </script>
+</head>
+<body><p>Redirecting...</p></body>
+</html>

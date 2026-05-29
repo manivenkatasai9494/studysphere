@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Assistant — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.getElementById('app').innerHTML = appLayoutHTML('/voice.html', 'Voice Assistant');
+    initAppLayout('/voice.html', 'Voice Assistant');
+    let sessionId = null;
+    let recognition = null;
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="voice-layout">
+        <div class="card" style="text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <h2>Voice Learning Assistant</h2>
+          <p style="color:var(--text-muted);margin:1rem 0 1.5rem">Click the microphone and speak.</p>
+          <button class="voice-btn" id="mic-btn">🎤</button>
+          <p id="status" style="margin-top:1rem;color:var(--text-muted)">Ready</p>
+        </div>
+        <div class="chat-panel">
+          <div class="chat-messages" id="messages">
+            <p style="color:var(--text-muted);text-align:center;margin:auto">Your conversation will appear here</p>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:1rem"><h2>Voice History</h2><div id="history"></div></div>
+    `;
+
+    async function initSession() {
+      if (!sessionId) {
+        const res = await api.post('/voice/sessions', { title: 'Voice Session' });
+        sessionId = res.session_id;
+      }
+    }
+
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SR();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.onresult = async (e) => {
+        const text = e.results[0][0].transcript;
+        document.getElementById('status').textContent = `You said: ${text}`;
+        await initSession();
+        const msgs = document.getElementById('messages');
+        if (msgs.querySelector('p')) msgs.innerHTML = '';
+        appendChatMessage(msgs, 'user', text);
+        try {
+          const res = await api.post('/voice/chat', { session_id: sessionId, text });
+          appendChatMessage(msgs, 'assistant', res.text);
+          if ('speechSynthesis' in window) {
+            const u = new SpeechSynthesisUtterance(res.text);
+            speechSynthesis.speak(u);
+          }
+          loadHistory();
+        } catch (err) { showToast(err.message, 'error'); }
+        document.getElementById('mic-btn').classList.remove('listening');
+      };
+      recognition.onerror = () => {
+        document.getElementById('mic-btn').classList.remove('listening');
+        document.getElementById('status').textContent = 'Error — try again';
+      };
+    }
+
+    document.getElementById('mic-btn').onclick = () => {
+      if (!recognition) { showToast('Speech recognition not supported in this browser', 'error'); return; }
+      document.getElementById('mic-btn').classList.add('listening');
+      document.getElementById('status').textContent = 'Listening...';
+      recognition.start();
+    };
+
+    async function loadHistory() {
+      const data = await api.get('/voice/sessions');
+      document.getElementById('history').innerHTML = (data.sessions || []).map(s => `
+        <p><a href="#" onclick="loadSession('${s.id}');return false">${s.title}</a> — ${(s.messages||[]).length} messages</p>
+      `).join('') || '<p style="color:var(--text-muted)">No sessions yet</p>';
+    }
+
+    window.loadSession = async (id) => {
+      sessionId = id;
+      const s = await api.get(`/voice/sessions/${id}`);
+      const msgs = document.getElementById('messages');
+      msgs.innerHTML = (s.messages || []).map(m => renderMessage(m.role, m.content)).join('') ||
+        '<p style="color:var(--text-muted);text-align:center">No messages yet</p>';
+      scrollChat(msgs);
+    };
+    loadHistory();
+  </script>
+</body>
+</html>

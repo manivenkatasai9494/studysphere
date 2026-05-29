@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Tutor — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css?v=3">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js?v=2"></script>
+  <script src="/js/app.js?v=2"></script>
+  <script>
+    let currentConvId = null;
+
+    function mountTutorUI() {
+      const page = document.getElementById('page-content');
+      if (!page) throw new Error('page-content not found');
+      page.classList.add('page-chat');
+      page.innerHTML = `
+      <div class="chat-layout">
+        <div class="chat-sidebar">
+          <div class="chat-sidebar-header">
+            <button class="btn btn-primary btn-sm" id="new-chat" style="width:100%;margin-bottom:.5rem">+ New Chat</button>
+            <input type="search" class="search-input" id="search-chats" placeholder="Search chats...">
+          </div>
+          <div class="chat-list" id="chat-list"></div>
+        </div>
+        <div class="chat-main">
+          <div class="chat-messages" id="messages">
+            <p class="chat-empty-hint">Start a new conversation or select a chat from the list</p>
+          </div>
+          <div class="chat-input-area">
+            <div class="chat-input-wrap">
+              <textarea id="user-input" placeholder="Ask your tutor anything..." rows="3"></textarea>
+              <button type="button" class="btn btn-primary" id="send-btn">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    }
+
+    try {
+      document.getElementById('app').innerHTML = appLayoutHTML('/tutor.html', 'AI Tutor');
+      if (!initAppLayout('/tutor.html', 'AI Tutor')) throw new Error('Not authenticated');
+      mountTutorUI();
+    } catch (err) {
+      console.error(err);
+      const page = document.getElementById('page-content');
+      if (page) {
+        page.innerHTML = `<div class="card" style="margin:1.5rem"><h2>Could not load chat UI</h2><p>${escapeHtml(String(err.message))}</p><p>Try Ctrl+Shift+R to hard refresh.</p></div>`;
+      }
+    }
+
+    async function loadConversations(search = '') {
+      const q = search ? `?search=${encodeURIComponent(search)}` : '';
+      const data = await api.get(`/tutor/conversations${q}`);
+      const list = document.getElementById('chat-list');
+      list.innerHTML = (data.items || []).map(c => `
+        <div class="chat-item ${c.id === currentConvId ? 'active' : ''}" data-id="${c.id}" role="button" tabindex="0">
+          <div class="title">${escapeHtml(c.title || 'Chat')}</div>
+          <div class="date">${new Date(c.updated_at || c.created_at).toLocaleDateString()}</div>
+        </div>
+      `).join('') || '<p class="chat-empty-hint" style="padding:1rem">No chats yet</p>';
+      bindChatSidebar(list, selectConversation);
+    }
+
+    async function selectConversation(id) {
+      if (!id) return;
+      try {
+        currentConvId = id;
+        setActiveChatItem(document.getElementById('chat-list'), id);
+        const data = await api.get(`/tutor/conversations/${id}/messages`);
+        const container = document.getElementById('messages');
+        container.innerHTML = renderChatHistory(data.messages, 'No messages in this chat yet.');
+        scrollChat(container);
+        loadConversations(document.getElementById('search-chats').value);
+      } catch (err) {
+        showToast(err.message || 'Could not load chat', 'error');
+      }
+    }
+
+    document.getElementById('new-chat').onclick = async () => {
+      const conv = await api.post('/tutor/conversations', { title: 'New Chat' });
+      currentConvId = conv.id;
+      document.getElementById('messages').innerHTML = '<p class="chat-empty-hint">New chat — type your question below</p>';
+      await loadConversations();
+      setActiveChatItem(document.getElementById('chat-list'), currentConvId);
+    };
+
+    document.getElementById('search-chats').oninput = (e) => loadConversations(e.target.value);
+
+    async function sendMessage() {
+      const input = document.getElementById('user-input');
+      const text = input.value.trim();
+      if (!text) return;
+      if (!currentConvId) {
+        const conv = await api.post('/tutor/conversations', { title: 'New Chat' });
+        currentConvId = conv.id;
+        setActiveChatItem(document.getElementById('chat-list'), currentConvId);
+      }
+      const container = document.getElementById('messages');
+      appendChatMessage(container, 'user', text);
+      input.value = '';
+      const btn = document.getElementById('send-btn');
+      btn.disabled = true;
+      try {
+        const res = await api.post(`/tutor/conversations/${currentConvId}/chat`, { content: text });
+        appendChatMessage(container, 'assistant', res.content);
+        loadConversations();
+      } catch (err) { showToast(err.message, 'error'); }
+      btn.disabled = false;
+    }
+
+    document.getElementById('send-btn').onclick = sendMessage;
+    document.getElementById('user-input').onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    };
+
+    if (document.getElementById('chat-list')) loadConversations();
+  </script>
+</body>
+</html>

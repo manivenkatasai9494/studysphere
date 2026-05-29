@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study Planner — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.getElementById('app').innerHTML = appLayoutHTML('/planner.html', 'Study Planner');
+    initAppLayout('/planner.html', 'Study Planner');
+    let planId = null;
+    let pomodoroInterval = null;
+    let pomodoroSeconds = 25 * 60;
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="card">
+        <h2>Create Study Plan</h2>
+        <div class="form-row">
+          <div class="form-group"><label>Subjects</label><input id="subjects" placeholder="Math, Physics"></div>
+          <div class="form-group"><label>Topics</label><input id="topics" placeholder="Calculus, Mechanics"></div>
+          <div class="form-group"><label>Exam Date</label><input type="date" id="exam_date"></div>
+          <div class="form-group"><label>Daily Hours</label><input type="number" id="hours" value="2" min="1" max="12"></div>
+        </div>
+        <button class="btn btn-primary" id="generate-plan">Generate Plan</button>
+      </div>
+      <div class="card pomodoro-timer">
+        <h2>Pomodoro Timer</h2>
+        <div class="time" id="pomodoro-display">25:00</div>
+        <button class="btn btn-primary" id="pomodoro-start">Start</button>
+        <button class="btn btn-secondary" id="pomodoro-reset">Reset</button>
+      </div>
+      <div id="plan-output" class="card hidden"></div>
+      <div class="card"><h2>Saved Plans</h2><div id="plans-list"></div></div>
+    `;
+
+    function updatePomodoroDisplay() {
+      const m = Math.floor(pomodoroSeconds / 60);
+      const s = pomodoroSeconds % 60;
+      document.getElementById('pomodoro-display').textContent = `${m}:${s.toString().padStart(2,'0')}`;
+    }
+
+    document.getElementById('pomodoro-start').onclick = () => {
+      if (pomodoroInterval) { clearInterval(pomodoroInterval); pomodoroInterval = null; document.getElementById('pomodoro-start').textContent = 'Start'; return; }
+      document.getElementById('pomodoro-start').textContent = 'Pause';
+      pomodoroInterval = setInterval(() => {
+        if (pomodoroSeconds <= 0) { clearInterval(pomodoroInterval); showToast('Pomodoro complete! Take a break.', 'success'); return; }
+        pomodoroSeconds--;
+        updatePomodoroDisplay();
+      }, 1000);
+    };
+    document.getElementById('pomodoro-reset').onclick = () => {
+      clearInterval(pomodoroInterval);
+      pomodoroInterval = null;
+      pomodoroSeconds = 25 * 60;
+      updatePomodoroDisplay();
+      document.getElementById('pomodoro-start').textContent = 'Start';
+    };
+
+    document.getElementById('generate-plan').onclick = async () => {
+      const res = await api.post('/planner/generate', {
+        subjects: document.getElementById('subjects').value.split(',').map(s => s.trim()).filter(Boolean),
+        topics: document.getElementById('topics').value.split(',').map(s => s.trim()).filter(Boolean),
+        exam_date: document.getElementById('exam_date').value || null,
+        study_hours: +document.getElementById('hours').value,
+      });
+      planId = res.plan_id;
+      document.getElementById('plan-output').classList.remove('hidden');
+      document.getElementById('plan-output').innerHTML = `<h2>Your Study Plan</h2>
+        ${formatStructuredData(res.plan)}
+        <button class="btn btn-secondary btn-sm" id="mark-done" style="margin-top:1rem">Mark Task Complete</button>`;
+      document.getElementById('mark-done').onclick = async () => {
+        await api.patch(`/planner/plans/${planId}/progress`, { completed_tasks: ['day1'], streak_increment: true });
+        showToast('Progress updated!', 'success');
+      };
+      loadPlans();
+    };
+
+    async function loadPlans() {
+      const data = await api.get('/planner/plans');
+      document.getElementById('plans-list').innerHTML = (data.plans || []).map(p => `
+        <p><strong>${(p.subjects||[]).join(', ')}</strong> — Streak: ${p.streak||0} — ${new Date(p.created_at).toLocaleDateString()}</p>
+      `).join('') || '<p style="color:var(--text-muted)">No plans yet</p>';
+    }
+    loadPlans();
+  </script>
+</body>
+</html>

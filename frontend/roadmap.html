@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roadmap — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.getElementById('app').innerHTML = appLayoutHTML('/roadmap.html', 'Roadmap Generator');
+    initAppLayout('/roadmap.html', 'Roadmap Generator');
+    let roadmapId = null;
+    let roadmapData = null;
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="card">
+        <h2>Career Roadmap</h2>
+        <div class="form-group">
+          <label>Career Goal</label>
+          <input id="goal" placeholder="AI Engineer, Full Stack Developer, Data Scientist...">
+        </div>
+        <button class="btn btn-primary" id="generate">Generate Roadmap</button>
+      </div>
+      <div id="roadmap-output" class="card hidden">
+        <h2>Your Roadmap <button class="btn btn-secondary btn-sm" id="download-json">Download JSON</button></h2>
+        <textarea id="roadmap-editor" rows="20" style="width:100%;font-family:monospace;font-size:.85rem"></textarea>
+        <button class="btn btn-primary btn-sm" id="save-roadmap" style="margin-top:.5rem">Save Changes</button>
+      </div>
+      <div class="card"><h2>Saved Roadmaps</h2><div id="list"></div></div>
+    `;
+
+    document.getElementById('generate').onclick = async () => {
+      const res = await api.post('/roadmap/generate', { career_goal: document.getElementById('goal').value });
+      roadmapId = res.roadmap_id;
+      roadmapData = res.roadmap;
+      showRoadmap(roadmapData);
+      loadList();
+    };
+
+    function showRoadmap(data) {
+      document.getElementById('roadmap-output').classList.remove('hidden');
+      document.getElementById('roadmap-editor').value = JSON.stringify(data, null, 2);
+    }
+
+    document.getElementById('save-roadmap').onclick = async () => {
+      try {
+        roadmapData = JSON.parse(document.getElementById('roadmap-editor').value);
+        await api.patch(`/roadmap/${roadmapId}`, { roadmap_data: roadmapData });
+        showToast('Roadmap saved!', 'success');
+      } catch (e) { showToast('Invalid JSON', 'error'); }
+    };
+
+    document.getElementById('download-json').onclick = () => {
+      const blob = new Blob([document.getElementById('roadmap-editor').value], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'roadmap.json';
+      a.click();
+    };
+
+    async function loadList() {
+      const data = await api.get('/roadmap/list');
+      document.getElementById('list').innerHTML = (data.roadmaps || []).map(r => `
+        <p><a href="#" onclick="loadRoadmap('${r.id}');return false">${r.career_goal}</a> — ${new Date(r.created_at).toLocaleDateString()}</p>
+      `).join('') || '<p style="color:var(--text-muted)">No roadmaps yet</p>';
+    }
+
+    window.loadRoadmap = async (id) => {
+      const r = await api.get(`/roadmap/${id}`);
+      roadmapId = id;
+      showRoadmap(r.roadmap_data);
+    };
+    loadList();
+  </script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Debate Partner — StudySphere AI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.getElementById('app').innerHTML = appLayoutHTML('/debate.html', 'Debate Partner');
+    initAppLayout('/debate.html', 'Debate Partner');
+    let debateId = null;
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="card" id="setup">
+        <h2>Start a Debate</h2>
+        <div class="form-group"><label>Topic / Proposition</label><input id="topic" placeholder="AI will replace software engineers"></div>
+        <div class="form-group"><label>Your Position</label>
+          <select id="position"><option value="for">For</option><option value="against">Against</option></select>
+        </div>
+        <button class="btn btn-primary" id="start-debate">Start Debate</button>
+      </div>
+      <div id="debate-area" class="debate-area-wrap hidden">
+        <div class="chat-panel">
+          <div class="chat-messages" id="messages"></div>
+          <div class="chat-input-area">
+            <div class="chat-input-wrap">
+              <textarea id="argument" placeholder="Your argument or rebuttal..." rows="3"></textarea>
+              <button type="button" class="btn btn-primary" id="send-round">Respond</button>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="evaluate" style="margin-top:.5rem">End & Evaluate</button>
+          </div>
+        </div>
+      </div>
+      <div class="card"><h2>Debate History</h2><div id="history"></div></div>
+    `;
+
+    document.getElementById('start-debate').onclick = async () => {
+      const res = await api.post('/debate/start', {
+        topic: document.getElementById('topic').value,
+        user_position: document.getElementById('position').value,
+      });
+      debateId = res.debate_id;
+      document.getElementById('setup').classList.add('hidden');
+      document.getElementById('debate-area').classList.remove('hidden');
+      const msgs = document.getElementById('messages');
+      msgs.innerHTML = renderMessage('assistant', res.ai_opening);
+      scrollChat(msgs);
+    };
+
+    document.getElementById('send-round').onclick = async () => {
+      const arg = document.getElementById('argument').value.trim();
+      if (!arg) return;
+      const msgs = document.getElementById('messages');
+      appendChatMessage(msgs, 'user', arg);
+      document.getElementById('argument').value = '';
+      const res = await api.post('/debate/round', { debate_id: debateId, argument: arg });
+      appendChatMessage(msgs, 'assistant', res.ai_response);
+    };
+
+    document.getElementById('evaluate').onclick = async () => {
+      const res = await api.post(`/debate/${debateId}/evaluate`);
+      const msgs = document.getElementById('messages');
+      msgs.insertAdjacentHTML('beforeend', `<div class="message assistant"><h3 style="margin-bottom:.75rem">Evaluation</h3>${formatStructuredData(res.evaluation)}</div>`);
+      scrollChat(msgs);
+      loadHistory();
+    };
+
+    async function loadHistory() {
+      const data = await api.get('/debate/history');
+      document.getElementById('history').innerHTML = (data.debates || []).map(d => `
+        <p><strong>${d.topic}</strong> — ${d.rounds?.length || 0} rounds — ${new Date(d.created_at).toLocaleDateString()}</p>
+      `).join('') || '<p style="color:var(--text-muted)">No debates yet</p>';
+    }
+    loadHistory();
+  </script>
+</body>
+</html>
